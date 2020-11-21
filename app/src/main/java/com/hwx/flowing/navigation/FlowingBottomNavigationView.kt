@@ -15,7 +15,11 @@ import com.hwx.myapplication.R
 /**
  * stolen from here - https://cdn.dribbble.com/users/824356/videos/13100/mockup_2.mp4
  */
-class FlowingBottomNavigationView : FrameLayout {
+class FlowingBottomNavigationView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : FrameLayout(context, attrs, defStyleAttr) {
 
     private companion object {
         val DEFAULT_HEIGHT = 60F.toPixels()
@@ -24,22 +28,8 @@ class FlowingBottomNavigationView : FrameLayout {
         val BOTTOM_PADDING = 0F.toPixels()
 
         val TOP_WAVE_PADDING = 5F.toPixels()
+        val ACTIVE_ICON_VERTICAL_SHIFT = 10F.toPixels()
     }
-
-    constructor(context: Context) : super(context)
-    constructor(context: Context, attrs: AttributeSet?) : super(context, attrs)
-    constructor(context: Context, attrs: AttributeSet?, defStyleAttr: Int) : super(
-        context,
-        attrs,
-        defStyleAttr
-    )
-
-    constructor(
-        context: Context,
-        attrs: AttributeSet?,
-        defStyleAttr: Int,
-        defStyleRes: Int
-    ) : super(context, attrs, defStyleAttr, defStyleRes)
 
     private data class MenuItem(
         val icon: Int,
@@ -49,6 +39,8 @@ class FlowingBottomNavigationView : FrameLayout {
         MenuItem(R.drawable.ic_dashboard_black_24dp),
         MenuItem(R.drawable.ic_home_black_24dp),
         MenuItem(R.drawable.ic_notifications_black_24dp),
+        MenuItem(R.drawable.ic_dashboard_black_24dp),
+        MenuItem(R.drawable.ic_home_black_24dp),
     )
 
     private var currentItem: MenuItem = menuItems.first() //avx:todo - del this
@@ -58,7 +50,7 @@ class FlowingBottomNavigationView : FrameLayout {
     private val selectableResId = getSelectableResId()
 
     init {
-
+        setWillNotDraw(false)
     }
 
     override fun onAttachedToWindow() {
@@ -77,12 +69,14 @@ class FlowingBottomNavigationView : FrameLayout {
         return outValue.resourceId
     }
 
+    private var iconAreaWidth: Int = 0
+
     //avx:todo - make selectable as circle..
     private fun drawIcons() {
         val resources = context.resources
         val viewWidth = 1080 //avx:todo - edit this...
-        val widthForIcon = viewWidth / menuItems.size
-        var currentIconStartPx = widthForIcon / 2 - ICON_SIZE
+        iconAreaWidth = viewWidth / menuItems.size
+        var currentIconStartPx = iconAreaWidth / 2 - ICON_SIZE
         menuItems.forEach {
 
             val image = ImageView(context)
@@ -104,7 +98,7 @@ class FlowingBottomNavigationView : FrameLayout {
             image.scaleType = ImageView.ScaleType.CENTER_INSIDE
             addView(image)
 
-            currentIconStartPx += widthForIcon
+            currentIconStartPx += iconAreaWidth
         }
     }
 
@@ -119,14 +113,32 @@ class FlowingBottomNavigationView : FrameLayout {
         style = Paint.Style.FILL
     }
 
+    private val backPath = Path()
+
+    private var currentIdx: Int = 2
+
     private fun drawWave(canvas: Canvas) {
-        val viewWidth = 1080F
-        val path = Path()
-        path.moveTo(0F, TOP_WAVE_PADDING)
-        path.lineTo(viewWidth, TOP_WAVE_PADDING)
-        path.lineTo(viewWidth, DEFAULT_HEIGHT)
-        path.lineTo(0F, DEFAULT_HEIGHT)
-        path.lineTo(0F, 0F)
-        canvas.drawPath(path, whitePaint)
+        backPath.moveTo(0F, 0F)
+        backPath.lineTo(0F, height.toFloat())
+        val preCubicShift = iconAreaWidth / 4F
+        val halfOfIconAreaWidth = iconAreaWidth / 2F
+        backPath.lineTo(currentIdx * iconAreaWidth - preCubicShift, height.toFloat())
+
+        val currentIconMiddleX = iconAreaWidth * (currentIdx + 0.5F)
+        backPath.cubicTo(
+            currentIconMiddleX - preCubicShift, height.toFloat(),
+            currentIconMiddleX - halfOfIconAreaWidth, 0f,
+            currentIconMiddleX, ACTIVE_ICON_VERTICAL_SHIFT / 2
+        )
+        backPath.cubicTo(
+            currentIconMiddleX + halfOfIconAreaWidth, 0f,
+            currentIconMiddleX + preCubicShift, height.toFloat(),
+            (currentIdx + 1) * iconAreaWidth + preCubicShift, height.toFloat()
+        )
+        backPath.lineTo(width.toFloat(), height.toFloat())
+        backPath.lineTo(width.toFloat(), 0f)
+        backPath.lineTo(0F, 0F)
+        canvas.drawPath(backPath, whitePaint)
+        backPath.reset()
     }
 }
