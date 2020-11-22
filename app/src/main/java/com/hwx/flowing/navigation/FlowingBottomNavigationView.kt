@@ -3,17 +3,19 @@ package com.hwx.flowing.navigation
 import android.animation.Animator
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.*
 import android.os.Handler
 import android.util.AttributeSet
 import android.util.TypedValue
-import android.view.Gravity
-import android.view.View
-import android.view.ViewOutlineProvider
+import android.view.*
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
+import androidx.appcompat.view.SupportMenuInflater
+import androidx.appcompat.view.menu.MenuBuilder
+import com.google.android.material.bottomnavigation.BottomNavigationMenu
 import com.hwx.myapplication.R
 import java.lang.ref.WeakReference
 import kotlin.math.abs
@@ -23,6 +25,7 @@ import kotlin.math.abs
  * stolen from here - https://cdn.dribbble.com/users/824356/videos/13100/mockup_2.mp4
  *
  */
+@SuppressLint("RestrictedApi")
 class FlowingBottomNavigationView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -40,17 +43,13 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
         const val ANIM_ICON_SHIFT_DURATION = 400L
     }
 
-    data class MenuItem(
-        val icon: Int,
-    )
+    interface OnItemSelectedListener {
+        fun onItemSelected(item: MenuItem)
+    }
 
-    private val menuItems: List<MenuItem> = listOf(
-        MenuItem(R.drawable.ic_dashboard_black_24dp),
-        MenuItem(R.drawable.ic_home_black_24dp),
-        MenuItem(R.drawable.ic_notifications_black_24dp),
-        MenuItem(R.drawable.ic_account_balance_24px),
-        MenuItem(R.drawable.ic_assignment_ind_24px),
-    )
+    var listener: OnItemSelectedListener? = null
+
+    private val menuItems = mutableListOf<MenuItem>()
 
     private var currentIdx: Int = 4
 
@@ -73,16 +72,24 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
     private var preCubicShift = 0f
     private var halfOfIconAreaWidth = 0f
     private var currentIconMiddleX = 0f
+    private val pointsForIcons = mutableMapOf<Int, Float>()
 
     private var waveAnimator: Animator? = null
-    private var fromIconAnimatorFirst: Animator? = null
-    private var toIconAnimatorFirst: Animator? = null
-    private var fadeIconsAnimators: Set<Animator>? = null
+    private var actionAnimatorFirst: Animator? = null
+    private var actionAnimatorSecond: Animator? = null
 
-    private val pointsForIcons = mutableMapOf<Int, Float>()
+    private var menu: MenuBuilder? = null
+    private val menuInflater by lazy { SupportMenuInflater(getContext()) }
 
     init {
         setWillNotDraw(false)
+        menu = BottomNavigationMenu(getContext())
+        val menuResId = R.menu.bottom_nav_menu
+        menuInflater.inflate(menuResId, menu)
+
+        menu?.nonActionItems?.map { it as MenuItem }?.let {
+            menuItems.addAll(it)
+        }
     }
 
     private fun updateIconWidth() {
@@ -94,8 +101,7 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
         }
     }
 
-    fun setCurrentItem(item: MenuItem, isAnimate: Boolean = true) {
-        val newIdx = menuItems.indexOf(item).takeIf { it != -1 } ?: return
+    fun setCurrentItem(newIdx: Int, isAnimate: Boolean = true) {
         if (newIdx == currentIdx) return
         if (isAnimate) {
             animateWave(newIdx)
@@ -106,13 +112,18 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
         invalidate()
     }
 
+    private fun onItemSelected(item: MenuItem) {
+        val idx = menuItems.indexOf(item).takeIf { it != -1 } ?: return
+        setCurrentItem(idx)
+        listener?.onItemSelected(item)
+    }
+
     private fun getIconMiddleX(idx: Int) = iconAreaWidth * (idx + 0.5F)
 
     private fun animateWave(toIdx: Int) {
         waveAnimator?.cancel()
-        fromIconAnimatorFirst?.cancel()
-        toIconAnimatorFirst?.cancel()
-        fadeIconsAnimators?.forEach { it.cancel() }
+        actionAnimatorFirst?.cancel()
+        actionAnimatorSecond?.cancel()
 
         val toValue = getIconMiddleX(toIdx)
 
@@ -129,7 +140,7 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
 
         val actionIcon = weakActionIcon?.get() ?: return
         //avx:todo - cancel animators..
-        val actionAnimatorFirst =
+        actionAnimatorFirst =
             ObjectAnimator.ofFloat(actionIcon.translationY, height.toFloat() * 1.5f).apply {
                 duration = ANIM_ICON_SHIFT_DURATION / 2
                 interpolator = AccelerateDecelerateInterpolator()
@@ -139,7 +150,7 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
                 }
             }
 
-        val actionAnimatorSecond = ObjectAnimator.ofFloat(height.toFloat() * 1.5f, 0f).apply {
+        actionAnimatorSecond = ObjectAnimator.ofFloat(height.toFloat() * 1.5f, 0f).apply {
             duration = ANIM_ICON_SHIFT_DURATION / 2
             interpolator = AccelerateDecelerateInterpolator()
             addUpdateListener {
@@ -157,9 +168,8 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
     }
 
     private fun updateActionIconImage(toIdx: Int) {
-        val imageId = menuItems.getOrNull(toIdx)?.icon ?: return
+        val drawable = menuItems.getOrNull(toIdx)?.icon ?: return
         val actionImage = weakActionIcon?.get() ?: return
-        val drawable = resources.getDrawable(imageId, context.theme)
         actionImage.setImageDrawable(drawable)
     }
 
@@ -200,12 +210,11 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
         super.onWindowFocusChanged(hasWindowFocus)
         updateIconWidth()
         drawIcons()
-        setCurrentItem(MenuItem(R.drawable.ic_notifications_black_24dp), false)
+
+        setCurrentItem(2, false)
     }
 
     private fun drawIcons() {
-        val resources = context.resources
-
         var currentIconStartPx = iconAreaWidth / 2 - ICON_SIZE / 2
         menuItems.forEachIndexed { idx, item ->
 
@@ -218,8 +227,7 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
                     everyIconBottomPx.toInt(),
                 )
             }
-            val drawable = resources.getDrawable(item.icon, context.theme)
-            image.setImageDrawable(drawable)
+            image.setImageDrawable(item.icon)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                 image.foreground = context.getDrawable(selectableResId)
             }
@@ -227,7 +235,7 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
             image.adjustViewBounds = true
             image.scaleType = ImageView.ScaleType.CENTER_INSIDE
             image.setOnClickListener {
-                setCurrentItem(item)
+                onItemSelected(item)
             }
             image.addRoundedCorners(ICON_SIZE / 2)
             addView(image)
@@ -250,8 +258,7 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
         actionImage.adjustViewBounds = true
         actionImage.scaleType = ImageView.ScaleType.CENTER_INSIDE
 
-        val drawable = resources.getDrawable(menuItems.first().icon, context.theme)
-        actionImage.setImageDrawable(drawable)
+        actionImage.setImageDrawable(menuItems.first().icon)
         addView(actionImage)
     }
 
