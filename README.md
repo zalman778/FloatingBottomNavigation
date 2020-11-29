@@ -4,7 +4,8 @@ FlowingBottomNavigationView
 Bottom Navigation View Implementation with beautiful animation.
 
 There are FlowingBottomNavigationConfigurator and OnItemSelectedListener interfaces to control
-the view.
+the view. You can also integrate this view with Jetpack Navigation via 
+NavigationUtil.setupWithNavController function.
 
 Demo:
 
