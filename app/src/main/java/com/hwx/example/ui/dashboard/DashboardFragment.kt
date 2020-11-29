@@ -1,4 +1,4 @@
-package com.hwx.myapplication.ui.dashboard
+package com.hwx.example.ui.dashboard
 
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -8,7 +8,7 @@ import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
-import com.hwx.myapplication.R
+import com.hwx.example.R
 
 class DashboardFragment : Fragment() {
 

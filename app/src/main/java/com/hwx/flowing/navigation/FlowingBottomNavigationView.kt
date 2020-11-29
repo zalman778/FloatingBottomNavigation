@@ -5,9 +5,11 @@ import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.Resources
 import android.graphics.*
 import android.os.Handler
 import android.util.AttributeSet
+import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MenuItem
@@ -20,28 +22,24 @@ import android.widget.ImageView
 import androidx.appcompat.view.SupportMenuInflater
 import androidx.appcompat.view.menu.MenuBuilder
 import com.google.android.material.bottomnavigation.BottomNavigationMenu
-import com.hwx.myapplication.R
+import com.hwx.example.R
 import java.lang.ref.WeakReference
 import kotlin.math.abs
 
-
-/**
- * stolen from here - https://cdn.dribbble.com/users/824356/videos/13100/mockup_2.mp4
- *
- */
 @SuppressLint("RestrictedApi")
 class FlowingBottomNavigationView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-    defStyleAttr: Int = 0
+    defStyleAttr: Int = 0,
 ) : FrameLayout(context, attrs, defStyleAttr), FlowingBottomNavigationConfigurator {
 
     private companion object {
-        val DEFAULT_HEIGHT = 60F.toPixels()
+        fun Float.toPixels() = this *
+                (Resources.getSystem().displayMetrics.densityDpi.toFloat() / DisplayMetrics.DENSITY_DEFAULT)
 
+        val DEFAULT_HEIGHT = 60F.toPixels()
         val ICON_SIZE = 50F.toPixels()
         val BOTTOM_PADDING = 0F.toPixels()
-
         val WAVE_BOTTOM_STATE_HEIGHT = 8F.toPixels()
         val WAVE_TOP_PADDING = 10F.toPixels()
         const val ANIM_ICON_SHIFT_DURATION = 400L
@@ -52,11 +50,11 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
     }
 
     var listener: OnItemSelectedListener? = null
+    var animationDuration = ANIM_ICON_SHIFT_DURATION
+    var currentIdx: Int = 0
+        private set
 
     private val menuItems = mutableListOf<MenuItem>()
-
-    private var currentIdx: Int = 4
-
     private val everyIconBottomPx = DEFAULT_HEIGHT - BOTTOM_PADDING
     private val everyIconTopPx = everyIconBottomPx - ICON_SIZE
     private val selectableResId = getSelectableResId()
@@ -84,11 +82,22 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
 
     private var menu: MenuBuilder? = null
     private val menuInflater by lazy { SupportMenuInflater(getContext()) }
+    private var menuResId: Int = 0
 
     init {
         setWillNotDraw(false)
         menu = BottomNavigationMenu(getContext())
-        val menuResId = R.menu.bottom_nav_menu
+
+        context.theme.obtainStyledAttributes(
+            attrs,
+            R.styleable.FlowingBottomNavigationView, 0, 0
+        ).apply {
+            menuResId = getResourceId(R.styleable.FlowingBottomNavigationView_menuResId, 0)
+                .takeIf { it != 0 }
+                ?: throw IllegalArgumentException("No menu id provided, please, use app:menuResId attribute")
+        }.recycle()
+
+
         menuInflater.inflate(menuResId, menu)
 
         menu?.nonActionItems?.map { it as MenuItem }?.let {
@@ -101,29 +110,6 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
 
             val middleIdx = menuItems.size / 2
             setCurrentItem(middleIdx, false)
-        }
-    }
-
-    private fun View.doBeforeDraw(
-        action: () -> Unit,
-    ) {
-        val preDrawListener: OnPreDrawListener =
-            object : OnPreDrawListener {
-                override fun onPreDraw(): Boolean {
-                    viewTreeObserver.removeOnPreDrawListener(this)
-                    action()
-                    return true
-                }
-            }
-        viewTreeObserver.addOnPreDrawListener(preDrawListener)
-    }
-
-    private fun updateIconWidth() {
-        iconAreaWidth = measuredWidth / menuItems.size
-        preCubicShift = iconAreaWidth / 3F
-        halfOfIconAreaWidth = iconAreaWidth / 2F
-        for (idx in 0..menuItems.size) {
-            pointsForIcons[idx] = iconAreaWidth * idx + iconAreaWidth / 2f
         }
     }
 
@@ -140,23 +126,62 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
         invalidate()
     }
 
-    override fun setCurrentItem(item: MenuItem) {
-        val idx = menuItems.indexOf(item).takeIf { it != -1 } ?: return
-        setCurrentItem(idx)
+    override fun setCurrentItem(item: MenuItem, isAnimate: Boolean) {
+        val idx = menuItems.indexOf(item).takeIf { it != -1 }
+            ?: throw IllegalArgumentException("No such menu item")
+        setCurrentItem(idx, isAnimate)
         listener?.onItemSelected(item)
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        layoutParams = layoutParams.apply {
+            height = DEFAULT_HEIGHT.toInt()
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        drawWave(canvas)
+    }
+
+    private fun updateIconWidth() {
+        iconAreaWidth = measuredWidth / menuItems.size
+        preCubicShift = iconAreaWidth / 3F
+        halfOfIconAreaWidth = iconAreaWidth / 2F
+        for (idx in 0..menuItems.size) {
+            pointsForIcons[idx] = iconAreaWidth * idx + iconAreaWidth / 2f
+        }
     }
 
     private fun getIconMiddleX(idx: Int) = iconAreaWidth * (idx + 0.5F)
 
     private fun animateWave(toIdx: Int) {
+        cancelAnimators()
+        val targetValue = getIconMiddleX(toIdx)
+        createAnimators(targetValue)
+        startAnimators(toIdx)
+    }
+
+    private fun cancelAnimators() {
         waveAnimator?.cancel()
         actionAnimatorFirst?.cancel()
         actionAnimatorSecond?.cancel()
+    }
 
-        val toValue = getIconMiddleX(toIdx)
+    private fun startAnimators(toIdx: Int) {
+        waveAnimator?.start()
+        actionAnimatorFirst?.start()
 
+        Handler().postDelayed({
+            updateActionIconImage(toIdx)
+            actionAnimatorSecond?.start()
+        }, animationDuration / 2)
+    }
+
+    private fun createAnimators(toValue: Float) {
         waveAnimator = ValueAnimator.ofFloat(currentIconMiddleX, toValue).apply {
-            duration = ANIM_ICON_SHIFT_DURATION
+            duration = animationDuration
             interpolator = AccelerateDecelerateInterpolator()
             addUpdateListener {
                 val newX = it.animatedValue as? Float ?: return@addUpdateListener
@@ -169,7 +194,7 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
         val actionIcon = weakActionIcon?.get() ?: return
         actionAnimatorFirst =
             ObjectAnimator.ofFloat(actionIcon.translationY, height.toFloat() * 1.5f).apply {
-                duration = ANIM_ICON_SHIFT_DURATION / 2
+                duration = animationDuration / 2
                 interpolator = AccelerateDecelerateInterpolator()
                 addUpdateListener {
                     val newValue = it.animatedValue as? Float ?: return@addUpdateListener
@@ -178,20 +203,13 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
             }
 
         actionAnimatorSecond = ObjectAnimator.ofFloat(height.toFloat() * 1.5f, 0f).apply {
-            duration = ANIM_ICON_SHIFT_DURATION / 2
+            duration = animationDuration / 2
             interpolator = AccelerateDecelerateInterpolator()
             addUpdateListener {
                 val newValue = it.animatedValue as? Float ?: return@addUpdateListener
                 actionIcon.translationY = newValue
             }
         }
-        waveAnimator?.start()
-        actionAnimatorFirst?.start()
-
-        Handler().postDelayed({
-            updateActionIconImage(toIdx)
-            actionAnimatorSecond?.start()
-        }, ANIM_ICON_SHIFT_DURATION / 2)
     }
 
     private fun updateActionIconImage(toIdx: Int) {
@@ -219,12 +237,6 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
         weakActionIcon?.get()?.translationX = newX - ICON_SIZE / 2
     }
 
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        layoutParams = layoutParams.apply {
-            height = DEFAULT_HEIGHT.toInt()
-        }
-    }
 
     private fun getSelectableResId(): Int {
         val outValue = TypedValue()
@@ -281,21 +293,6 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
         addView(actionImage)
     }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        drawWave(canvas)
-    }
-
-    private fun ImageView.addRoundedCorners(radius: Float) {
-        outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View?, outline: Outline?) {
-                if (outline == null || view == null) return
-                outline.setRoundRect(0, 0, view.width, view.height, radius)
-            }
-        }
-        clipToOutline = true
-    }
-
     private fun drawWave(canvas: Canvas) {
         backPath.moveTo(0F, height.toFloat())
         backPath.lineTo(0F, WAVE_TOP_PADDING)
@@ -321,7 +318,8 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
             currentIconMiddleX - halfOfIconAreaWidth, height.toFloat(),
             currentIconMiddleX, height.toFloat() - WAVE_BOTTOM_STATE_HEIGHT / 2
         )
-        val endX = (currentIconMiddleX + halfOfIconAreaWidth + preCubicShift).takeIf { it < width }
+        val endX = (currentIconMiddleX + halfOfIconAreaWidth + preCubicShift)
+            .takeIf { it < width }
             ?: width.toFloat()
         backPath.cubicTo(
             currentIconMiddleX + halfOfIconAreaWidth, height.toFloat(),
@@ -329,9 +327,33 @@ class FlowingBottomNavigationView @JvmOverloads constructor(
             endX, WAVE_TOP_PADDING
         )
     }
+
+    private fun ImageView.addRoundedCorners(radius: Float) {
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View?, outline: Outline?) {
+                if (outline == null || view == null) return
+                outline.setRoundRect(0, 0, view.width, view.height, radius)
+            }
+        }
+        clipToOutline = true
+    }
+
+    private fun View.doBeforeDraw(
+        action: () -> Unit,
+    ) {
+        val preDrawListener: OnPreDrawListener =
+            object : OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    viewTreeObserver.removeOnPreDrawListener(this)
+                    action()
+                    return true
+                }
+            }
+        viewTreeObserver.addOnPreDrawListener(preDrawListener)
+    }
 }
 
 interface FlowingBottomNavigationConfigurator {
     fun setCurrentItem(newIdx: Int, isAnimate: Boolean = true)
-    fun setCurrentItem(item: MenuItem)
+    fun setCurrentItem(item: MenuItem, isAnimate: Boolean = true)
 }
