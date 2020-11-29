@@ -8,4 +8,4 @@ the view.
 
 Demo:
 
-![Demo](/img/demo.gif?raw=true "Demo" | width=500)
+<a href="url"><img src="/img/demo.gif" align="left" height="730" width="360" ></a>
