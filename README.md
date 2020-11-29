@@ -8,4 +8,4 @@ the view.
 
 Demo:
 
-![Demo](img/demo.git?raw=true "Demo")
+![Demo](img/demo.gif?raw=true "Demo" | width=500)
